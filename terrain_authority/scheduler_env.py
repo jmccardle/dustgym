@@ -23,6 +23,8 @@ Gymnasium-optional (bare-numpy core; gym.Env + spaces when present).
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from . import constants as K
@@ -96,6 +98,21 @@ class SchedulerEnv(_BASE):
     def _build_deficit(self, rect):
         h = self.cs.derive_height(); a, b, c, d = rect
         return float(np.maximum(self.target[a:c, b:d] - h[a:c, b:d], 0.0).sum())
+
+    def min_legs_lower_bound(self):
+        """Analytic lower bound on trip-legs to complete every site, independent of routing/allocation.
+
+        You need >= ceil(total_demand / drum) LOAD legs to acquire the material, and >= ceil(site_demand
+        / drum) DUMP legs PER SITE (a dump targets one site, capped by drum capacity). Leg-count is
+        allocation-INSENSITIVE (a leg is a leg regardless of which pit / how far), so this bound is tight
+        up to carry-over savings -- a scheduler that reaches it is provably near-optimal. (This is also
+        why the IPEx dig-dominated energy makes routing headroom small: ordering moves only the small
+        travel term, not the leg count or the conserved-mass dig cost.)"""
+        site_kgs = [self.fill_delta_m * K.RHO_SPOIL * (c - a) * (d - b) * self.cell_area
+                    for a, b, c, d in self.builds]
+        dumps = sum(math.ceil(s / self.drum_capacity_kg) for s in site_kgs)
+        loads = math.ceil(sum(site_kgs) / self.drum_capacity_kg)
+        return loads + dumps
 
     def _sample_layout(self, rng):
         """Place n_borrow borrow squares + n_build build squares, non-overlapping, within a margin.

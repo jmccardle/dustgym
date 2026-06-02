@@ -61,6 +61,17 @@ def test_planner_beats_random_under_budget():
     assert sum(r) <= 1                # random almost never finishes in time
 
 
+def test_planner_is_near_optimal():
+    """The greedy planner reaches ~the analytic leg lower bound -> near-optimal (so 'a learned policy
+    matches greedy' means it is near-optimal, the right bar given routing headroom is physics-limited)."""
+    env = mk(); env.reset(seed=0); done = False; info = {}
+    while not done:
+        _, _, te, tr, info = env.step(greedy_nearest_schedule(env)); done = te or tr
+    lb = env.min_legs_lower_bound()
+    assert info["success"]
+    assert info["legs"] <= lb + 3, (info["legs"], lb)      # within a few legs of optimal
+
+
 def test_no_overshoot_after_solve():
     """Sites are filled via fill_toward (FIX-4) -> no build cell ends above its target."""
     env = mk(); env.reset(seed=0); done = False
