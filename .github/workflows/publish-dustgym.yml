@@ -2,8 +2,10 @@ name: Publish dustgym to PyPI
 
 # Trusted Publishing (OIDC) — no API token. Fires on a published GitHub Release (tag the version
 # first, e.g. v0.1.0, then publish the release) or manually via workflow_dispatch.
-# PyPI "pending publisher" form maps to this file:
-#   Repository name: roversim   |   Workflow name: publish-dustgym.yml   |   Environment name: pypi
+# PyPI "pending publisher" form maps to this file (lives in the dustgym/dustgym repo):
+#   Owner: dustgym | Repository: dustgym | Workflow: publish-dustgym.yml | Environment: pypi
+# The OIDC subject uses ${{ github.repository }} at runtime — nothing here hardcodes the repo,
+# so this file works once it lives on dustgym/dustgym's default branch with a `pypi` environment.
 
 on:
   release:
