@@ -22,8 +22,10 @@ stays importable).
 """
 from __future__ import annotations
 
-# DRIVE env is registered per body (gravity-dependent physics); these have sourced/established fidelity.
-ROVER_BODIES = ["moon", "mars", "earth"]
+# DRIVE env registered per body for the GRAVITY-LOADED bodies (Bekker model valid). Bennu/Phobos are
+# microgravity (Bekker out of regime) -> NOT pre-registered as drive IDs; reachable via
+# gym.make("Dust/RoverDrive-v0", body="bennu") which emits an out-of-regime warning. (bodies_sysrev.md)
+ROVER_BODIES = ["moon", "mars", "ceres", "earth"]
 
 ENV_IDS = (
     ["Dust/RoverDrive-v0"]

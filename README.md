@@ -300,15 +300,26 @@ obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 | `Dust/SkillMacro-v0` | skill-macro construction: pick a cell + cut/dump toward target | `Discrete(128)` | `Box(68)` |
 | `Dust/Scheduler-v0` | multi-objective scheduling: borrow pits → build sites, one rover/drum | `Discrete(5)` | `Box(12)` |
 
-**Per-planet constants** (`terrain_authority/bodies.py`): each `Body` is (surface gravity, regolith).
-Gravity is exact/textbook ([FIXED]) and drives wheel load (`m·g`) and, via the Lyasko-2010 reduced-gravity
-law, the Bekker frictional modulus + cohesion — so `RoverDrive-Mars` has Mars weight and Mars-g-corrected
-soil. **Honesty:** the Bekker *moduli* are the repo's Earth-era baseline scaled by the gravity law, **not** a
-body-specific in-situ soil fit — Mars/icy-body soil composition is flagged `[UNKNOWN]` until a sourced
-dataset is dropped in (`params_for_body("moon")` reproduces the existing `lunar()` factory). Any body in
-`bodies.BODIES` (incl. Ceres/Europa/Enceladus) is reachable via `gym.make("Dust/RoverDrive-v0", body="ceres")`.
-The **construction/scheduling** envs are mass-conserving → gravity-invariant in this model, so they are
-registered body-neutral (a "Mars Scheduler" would be identical, so it isn't faked).
+**Per-planet constants** (`terrain_authority/bodies.py`, **systematically reviewed + sourced** in
+[`docs/bodies_sysrev.md`](docs/bodies_sysrev.md)): each `Body` carries real surface/regolith mechanics for a
+genuine habitat/mining target, every value tagged MEASURED / ESTIMATED / UNKNOWN (nothing fabricated).
+Bodies: **Moon, Mars, Ceres, Bennu, Phobos** (+ Earth validation); science-only bodies (Europa/Enceladus/
+Titan) are excluded.
+
+| body | g (m/s²) | cohesion | Bekker moduli | fidelity |
+|---|---|---|---|---|
+| Moon | 1.62 | 170 Pa | k_c=1400, k_φ=820k, n=1.0 | **MEASURED** (NASA LTV) |
+| Mars | 3.71 | 1 kPa | k_c=23.2k, k_φ=607k (GRC-3 sim) | MEASURED soil / ESTIMATED Bekker |
+| Ceres | 0.284 | UNKNOWN | lunar analog (flagged) | repose 34.5° MEASURED; Bekker UNKNOWN |
+| Bennu | ~4e-5 | ≤2 Pa | **N/A — Bekker invalid** | MEASURED (OSIRIS-REx); microgravity |
+| Phobos | 0.0057 | ~500 Pa | analog (flagged) | MEASURED g/ρ; milli-g, Bekker UNKNOWN |
+
+`RoverDrive` is registered per gravity-loaded body (`-Moon/-Mars/-Ceres/-Earth-v0`); **Bennu/Phobos are
+microgravity** where the gravity-loaded Bekker model is *out of regime* (no overburden — cohesion/granular
+dynamics dominate; DEM is the correct model), so they aren't pre-registered as drive IDs but are reachable
+via `gym.make("Dust/RoverDrive-v0", body="bennu")`, which **emits an out-of-regime warning**. The
+**construction/scheduling** envs are mass-conserving → gravity-invariant in this model, so they're registered
+body-neutral (a "Mars Scheduler" would be identical, so it isn't faked).
 
 All IDs pass `gymnasium.utils.env_checker`. Baselines / training demos in `scripts/demo/` (`train_ppo.py`,
 `train_scheduler.py`, `distill_scheduler.py`); `terrain_authority.scheduler_env` also ships a greedy planner

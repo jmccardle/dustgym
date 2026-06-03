@@ -86,6 +86,14 @@ class RoverSimEnv(_BASE):
             self.body = _b.name
             self.g = _b.g
             self.params_base = params if params is not None else _bodies.params_for_body(_b)
+            if _b.bekker_regime == "microgravity":         # honest: Bekker model is out of regime
+                import warnings
+                warnings.warn(
+                    f"RoverSimEnv body={_b.name!r}: gravity is {_b.g:.1e} m/s^2 -- the gravity-loaded "
+                    "Bekker pressure-sinkage model is OUT OF REGIME (microgravity, cohesion/granular "
+                    "dynamics dominate). Results are a placeholder, not validated physics; use a "
+                    "DEM/granular model. See terrain_authority.bodies / docs/bodies_sysrev.md.",
+                    stacklevel=2)
         else:
             self.body = None
             self.g = K.g
