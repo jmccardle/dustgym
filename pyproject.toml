@@ -3,13 +3,13 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lunar-sim-gym"
+name = "dustgym"
 version = "0.1.0"
-description = "Gymnasium environments for lunar surface vehicles and autonomous construction, on a mass-conserving terramechanics authority (IPEx / Lunar Autonomy Challenge lineage)."
+description = "Gymnasium environments for off-world surface vehicles and autonomous construction, on a mass-conserving terramechanics authority parameterized per planetary body (Moon/Mars/Earth/...). IPEx / Lunar Autonomy Challenge lineage."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-keywords = ["gymnasium", "reinforcement-learning", "lunar", "rover", "terramechanics", "isru", "robotics"]
+keywords = ["gymnasium", "reinforcement-learning", "planetary", "lunar", "mars", "rover", "terramechanics", "regolith", "isru", "robotics"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -31,9 +31,9 @@ Homepage = "https://github.com/jmccardle/roversim"
 Source = "https://github.com/jmccardle/roversim"
 
 # Forward-compatible Gymnasium plugin hook (for versions that auto-load entry points). Current
-# Gymnasium needs `import lunar_sim_gym` (registers on import) before `gymnasium.make("Lunar/...")`.
+# Gymnasium needs `import dustgym` (registers on import) before `gymnasium.make("Dust/...")`.
 [project.entry-points."gymnasium.envs"]
-Lunar = "lunar_sim_gym:register_envs"
+Dust = "dustgym:register_envs"
 
 [tool.setuptools]
-packages = ["terrain_authority", "lunar_sim_gym"]
+packages = ["terrain_authority", "dustgym"]

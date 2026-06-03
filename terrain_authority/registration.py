@@ -1,28 +1,35 @@
-"""registration.py — register the lunar-vehicle envs as a Gymnasium suite (namespace ``Lunar``).
+"""registration.py — register the dustgym envs as a Gymnasium suite (namespace ``Dust``).
 
-Makes the envs discoverable through ``gymnasium.make("Lunar/<Env>-v0")``. Importing the package
+Makes the envs discoverable through ``gymnasium.make("Dust/<Env>-v0")``. Importing the package
 registers them (the documented Gymnasium third-party pattern)::
 
-    import lunar_sim_gym            # or: import terrain_authority  -- either registers Lunar/*
+    import dustgym                  # or: import terrain_authority  -- either registers Dust/*
     import gymnasium as gym
-    env = gym.make("Lunar/RoverDrive-v0")
+    env = gym.make("Dust/RoverDrive-Mars-v0")     # per-body physics (gravity + regolith)
+    env = gym.make("Dust/Scheduler-v0")           # body-neutral (mass-conserving construction)
 
-(The ``[project.entry-points."gymnasium.envs"]`` hook in pyproject.toml is a forward-compatible
-plugin entry for Gymnasium versions that auto-load entry points; current Gymnasium needs the import
-above. ``gymnasium.register_envs(lunar_sim_gym)`` is the explicit, lint-friendly equivalent.)
+Per-body IDs: the DRIVE env depends on gravity (weight = m*g) and the Lyasko-corrected regolith, so it
+is registered per body (``RoverDrive-{Moon,Mars,Earth}-v0``) and accepts ``gym.make(..., body="ceres")``
+for any body in ``terrain_authority.bodies.BODIES``. The CONSTRUCTION/scheduling envs are mass-conserving
+(cut/fill is gravity-invariant in this model), so they are registered body-neutral -- a "Mars Scheduler"
+would be identical, so it is not faked.
 
-Each ID is constructible with NO user arguments (the construction/scheduling envs get a default
-challenge / layout here), and any constructor arg can still be overridden via ``gym.make(id, **kw)``.
-register_envs() is a no-op when gymnasium is absent, so the bare-numpy core stays importable.
+(The ``[project.entry-points."gymnasium.envs"]`` hook in pyproject.toml is a forward-compatible plugin
+entry; current Gymnasium needs the import above. ``gymnasium.register_envs(dustgym)`` is the explicit,
+lint-friendly equivalent.) Each ID is constructible with NO user arguments; any constructor arg can be
+overridden via ``gym.make(id, **kw)``. register_envs() is a no-op without gymnasium (bare-numpy core
+stays importable).
 """
 from __future__ import annotations
 
-LUNAR_ENV_IDS = [
-    "Lunar/RoverDrive-v0",     # closed-loop unicycle drive over terramechanics (slip, sinkage)
-    "Lunar/Construct-v0",      # goal-conditioned cut/fill to a target heightmap (terrain-matching reward)
-    "Lunar/SkillMacro-v0",     # skill-macro construction: pick a cell + cut/dump toward target
-    "Lunar/Scheduler-v0",      # multi-objective construction scheduling (borrow pits -> build sites)
-]
+# DRIVE env is registered per body (gravity-dependent physics); these have sourced/established fidelity.
+ROVER_BODIES = ["moon", "mars", "earth"]
+
+ENV_IDS = (
+    ["Dust/RoverDrive-v0"]
+    + [f"Dust/RoverDrive-{b.capitalize()}-v0" for b in ROVER_BODIES]
+    + ["Dust/Construct-v0", "Dust/SkillMacro-v0", "Dust/Scheduler-v0"]
+)
 
 _REGISTERED = False
 
@@ -31,7 +38,7 @@ def _default_challenge():
     """A small, self-contained flatten-a-pad challenge used as the default for the construction envs."""
     from . import challenge as ch
     return ch.Challenge(
-        id="lunar_default", name="Flatten a construction pad", difficulty_tier=2,
+        id="dust_default", name="Flatten a construction pad", difficulty_tier=2,
         map=ch.MapSpec(seed=0, base="bumps", grid=48, roughness_m=0.004),
         objective=ch.Objective(type="flatten_pad", region=(16, 16, 32, 32), tolerance_m=0.01),
         constraints=ch.Constraints(max_time_steps=400),
@@ -52,7 +59,7 @@ def _scheduler_kwargs():
 
 
 def register_envs():
-    """Register the Lunar/* environments with Gymnasium. Idempotent; no-op without gymnasium."""
+    """Register the Dust/* environments with Gymnasium. Idempotent; no-op without gymnasium."""
     global _REGISTERED
     if _REGISTERED:
         return
@@ -61,14 +68,20 @@ def register_envs():
     except Exception:
         return
     dc = _default_challenge()
+    rover_ep = "terrain_authority.rover_env:RoverSimEnv"
     specs = [
-        # (id, "module:Class", default kwargs, max_episode_steps)
-        ("Lunar/RoverDrive-v0", "terrain_authority.rover_env:RoverSimEnv", {}, 2000),
-        ("Lunar/Construct-v0", "terrain_authority.terrain_target_env:TerrainTargetEnv",
+        # DRIVE: default (Moon) + per-body. (id, "module:Class", kwargs, max_episode_steps)
+        ("Dust/RoverDrive-v0", rover_ep, {"body": "moon"}, 2000),
+    ]
+    specs += [(f"Dust/RoverDrive-{b.capitalize()}-v0", rover_ep, {"body": b}, 2000)
+              for b in ROVER_BODIES]
+    # CONSTRUCTION: body-neutral (mass-conserving -> gravity-invariant)
+    specs += [
+        ("Dust/Construct-v0", "terrain_authority.terrain_target_env:TerrainTargetEnv",
          {"challenge": dc}, None),
-        ("Lunar/SkillMacro-v0", "terrain_authority.skill_env:SkillMacroEnv",
+        ("Dust/SkillMacro-v0", "terrain_authority.skill_env:SkillMacroEnv",
          {"challenge": dc, "discrete_cells": 8}, None),
-        ("Lunar/Scheduler-v0", "terrain_authority.scheduler_env:SchedulerEnv",
+        ("Dust/Scheduler-v0", "terrain_authority.scheduler_env:SchedulerEnv",
          _scheduler_kwargs(), None),
     ]
     for env_id, entry_point, kwargs, max_steps in specs:

@@ -271,37 +271,49 @@ dims/dtype/row-major).
 
 ---
 
-## 3b. RL — the `Lunar/` Gymnasium suite
+## 3b. RL — `dustgym`, the `Dust/` Gymnasium suite
 
-The physics authority doubles as a set of **Gymnasium environments** for lunar surface vehicles and
-autonomous construction. Because the authority is exact, deterministic, mass-conserving, and sub-ms, it is
-both the simulator *and* the reward source — learned/searched policies only **command**, the authority
-**mutates** terrain, so rewards are unhackable by construction.
+The physics authority doubles as a set of **Gymnasium environments** for off-world surface vehicles and
+autonomous construction, **parameterized per planetary body** (Moon / Mars / Earth / …). Because the
+authority is exact, deterministic, mass-conserving, and sub-ms, it is both the simulator *and* the reward
+source — learned/searched policies only **command**, the authority **mutates** terrain, so rewards are
+unhackable by construction.
 
 ```bash
-pip install -e .            # installs `lunar-sim-gym` (deps: numpy, scipy, gymnasium; extras: [rl] = torch+SB3)
+pip install -e .            # installs `dustgym` (deps: numpy, scipy, gymnasium; extras: [rl] = torch+SB3)
 ```
 
 ```python
-import lunar_sim_gym        # registers the Lunar/* envs on import (or: gymnasium.register_envs(lunar_sim_gym))
+import dustgym              # registers the Dust/* envs on import (or: gymnasium.register_envs(dustgym))
 import gymnasium as gym
 
-env = gym.make("Lunar/Scheduler-v0")      # any constructor arg overridable: gym.make(id, max_legs=25, ...)
+env = gym.make("Dust/RoverDrive-Mars-v0")   # per-body physics (gravity + Lyasko-corrected regolith)
+env = gym.make("Dust/Scheduler-v0", max_legs=25)   # any constructor arg overridable
 obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
 | ID | task | action | obs |
 |----|------|--------|-----|
-| `Lunar/RoverDrive-v0` | closed-loop unicycle drive over terramechanics (slip, sinkage) | `Box(2)` twist | `Box(32)` |
-| `Lunar/Construct-v0` | cut/fill to a target heightmap (terrain-matching reward) | `Box(3)` drive+drum | `Box(104)` |
-| `Lunar/SkillMacro-v0` | skill-macro construction: pick a cell + cut/dump toward target | `Discrete(128)` | `Box(68)` |
-| `Lunar/Scheduler-v0` | multi-objective scheduling: borrow pits → build sites, one rover/drum | `Discrete(5)` | `Box(12)` |
+| `Dust/RoverDrive-v0` · `-Moon`/`-Mars`/`-Earth-v0` | closed-loop drive over terramechanics (slip, sinkage) | `Box(2)` twist | `Box(32)` |
+| `Dust/Construct-v0` | cut/fill to a target heightmap (terrain-matching reward) | `Box(3)` drive+drum | `Box(104)` |
+| `Dust/SkillMacro-v0` | skill-macro construction: pick a cell + cut/dump toward target | `Discrete(128)` | `Box(68)` |
+| `Dust/Scheduler-v0` | multi-objective scheduling: borrow pits → build sites, one rover/drum | `Discrete(5)` | `Box(12)` |
 
-All four pass `gymnasium.utils.env_checker`. Baselines / training demos in `scripts/demo/`
-(`train_ppo.py`, `train_scheduler.py`, `distill_scheduler.py`); `terrain_authority.scheduler_env` also ships
-a greedy planner and a model-based `beam_search_plan`. Finding: on these dig-dominated tasks model-based
-search + distillation reaches the optimum where model-free PPO does not (see `distill_scheduler.py`).
+**Per-planet constants** (`terrain_authority/bodies.py`): each `Body` is (surface gravity, regolith).
+Gravity is exact/textbook ([FIXED]) and drives wheel load (`m·g`) and, via the Lyasko-2010 reduced-gravity
+law, the Bekker frictional modulus + cohesion — so `RoverDrive-Mars` has Mars weight and Mars-g-corrected
+soil. **Honesty:** the Bekker *moduli* are the repo's Earth-era baseline scaled by the gravity law, **not** a
+body-specific in-situ soil fit — Mars/icy-body soil composition is flagged `[UNKNOWN]` until a sourced
+dataset is dropped in (`params_for_body("moon")` reproduces the existing `lunar()` factory). Any body in
+`bodies.BODIES` (incl. Ceres/Europa/Enceladus) is reachable via `gym.make("Dust/RoverDrive-v0", body="ceres")`.
+The **construction/scheduling** envs are mass-conserving → gravity-invariant in this model, so they are
+registered body-neutral (a "Mars Scheduler" would be identical, so it isn't faked).
+
+All IDs pass `gymnasium.utils.env_checker`. Baselines / training demos in `scripts/demo/` (`train_ppo.py`,
+`train_scheduler.py`, `distill_scheduler.py`); `terrain_authority.scheduler_env` also ships a greedy planner
+and a model-based `beam_search_plan`. Finding: on these dig-dominated tasks model-based search + distillation
+reaches the makespan optimum where model-free PPO does not (see `distill_scheduler.py`).
 
 ---
 

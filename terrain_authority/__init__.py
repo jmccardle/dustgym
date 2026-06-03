@@ -42,7 +42,7 @@ __all__ = [
     "register_envs",
 ]
 
-# Register the Lunar/* Gymnasium environments on import (no-op if gymnasium is absent, so the
+# Register the Dust/* Gymnasium environments on import (no-op if gymnasium is absent, so the
 # bare-numpy core stays importable). After `pip install`, the pyproject entry-point also triggers this.
 from .registration import register_envs  # noqa: E402
 
