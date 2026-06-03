@@ -46,7 +46,8 @@ class WorkSiteConstructEnv(_BASE):
     def __init__(self, *, n_base=8, base_cell_m=0.5, fine_cell_m=0.1, roughness_m=0.15,
                  berm_delta_m=0.025, n_slices=6, max_steps=13, tol_frac=0.15,
                  match_scale=10.0, step_cost=0.05, seed=0,
-                 bundle_dir=None, charges=None, work_cells=None, window_radius_m=8.0):
+                 bundle_dir=None, charges=None, work_cells=None, window_radius_m=8.0,
+                 flat_window=False, flat_topk=24, cut_depth_m=None):
         super().__init__()
         self.n_base = int(n_base); self.base_cell_m = float(base_cell_m)
         self.fine_cell_m = float(fine_cell_m); self.roughness_m = float(roughness_m)
@@ -68,6 +69,9 @@ class WorkSiteConstructEnv(_BASE):
         self.charges = charges
         self.energy_budget_j = (_ix.battery_energy_j() * float(charges)) if charges else float("inf")
         self._ws_cache = None                              # real-DEM WorkSite (loaded once, reused)
+        self.flat_window = bool(flat_window); self.flat_topk = int(flat_topk)
+        self.cut_depth_m = float(cut_depth_m) if cut_depth_m else None   # balanced cut-haul-fill depth
+        self._flat_rc = None                               # cached flattest base-tile centres
         self._energy = float("inf"); self._pad_berm_dist_m = 0.0; self._last_region = None
         self.ws = None; self.fine = None
         self.pad_rows = None; self.berm_rows = None; self.pad_target = 0.0
@@ -113,8 +117,14 @@ class WorkSiteConstructEnv(_BASE):
             self.ws = self._ws_cache
             self.ws.inventory_kg = 0.0                     # episodic reset of the global ledger
             rng = np.random.default_rng(s)
-            m = 6
-            br = int(rng.integers(m, self.ws.base.height - m)); bc = int(rng.integers(m, self.ws.base.width - m))
+            if self.flat_window:                          # pick a (seeded) FLAT site -> solvable, no slip
+                if self._flat_rc is None:
+                    self._flat_rc = self._find_flat_windows()
+                br, bc = self._flat_rc[int(rng.integers(len(self._flat_rc)))]
+            else:
+                m = 6
+                br = int(rng.integers(m, self.ws.base.height - m))
+                bc = int(rng.integers(m, self.ws.base.width - m))
             self.ws.open_window((br, bc), radius_m=self.window_radius_m)
         else:                                              # synthetic bumpy base (toy)
             base = _bumpy_base(self.n_base, self.base_cell_m, self.roughness_m, seed=s)
@@ -136,11 +146,19 @@ class WorkSiteConstructEnv(_BASE):
         self.berm_rows = self._split(berm_band, self.n_slices)
         h = self.fine.derive_height()
         pad_h = h[pad_band[0]:pad_band[1], self._cwin[0]:self._cwin[1]]
-        self.pad_target = float(pad_h.min())                       # flatten the pad to its lowest (max export)
         berm_h = h[berm_band[0]:berm_band[1], self._cwin[0]:self._cwin[1]]
-        # toy: raise the berm above its mean. real DEM: raise above the LOCAL MIN by delta -> a modest,
-        # mass-balanced berm (fillable from the pad cut) rather than importing a whole layer.
-        self.berm_target = float((berm_h.min() if self.bundle_dir else berm_h.mean()) + self.berm_delta_m)
+        if self.cut_depth_m:
+            # BALANCED cut-haul-fill (flat real-DEM site): cut a uniform `cut_depth` layer off the pad,
+            # raise the berm by exactly the height that consumes it (mass-balanced, so it's solvable).
+            self.pad_target = float(pad_h.mean()) - self.cut_depth_m
+            cut_kg = float(np.maximum(pad_h - self.pad_target, 0.0).sum()) * K.RHO_SURFACE * self.fine_cell_m ** 2
+            berm_area = float(berm_h.size) * self.fine_cell_m ** 2
+            raise_m = 0.95 * cut_kg / (berm_area * K.RHO_SPOIL)    # 0.95: stay just under what the cut yields
+            self.berm_target = float(berm_h.mean()) + raise_m
+        else:
+            self.pad_target = float(pad_h.min())                  # flatten the pad to its lowest (max export)
+            # toy: raise above mean; real DEM (non-balanced): raise above local min by delta
+            self.berm_target = float((berm_h.min() if self.bundle_dir else berm_h.mean()) + self.berm_delta_m)
         self._pad_done = [False] * self.n_slices
         self._berm_done = [False] * self.n_slices
         self._steps = 0
@@ -151,6 +169,17 @@ class WorkSiteConstructEnv(_BASE):
         self._energy = self.energy_budget_j                        # physics budget (J); inf when step-capped
         self._last_region = None
         return self._obs(), {"inventory_kg": self.ws.inventory_kg, "energy_j": self._energy}
+
+    def _find_flat_windows(self):
+        """Top-K flattest base-tile centres (lowest local relief) -> solvable, non-slip work sites."""
+        H = self.ws.base.derive_height(); tb = self.ws.tile_base_cells; nb = H.shape[0] // tb
+        rel = np.full((nb, nb), np.inf)
+        for i in range(2, nb - 2):
+            for j in range(2, nb - 2):
+                blk = H[i * tb:(i + 1) * tb, j * tb:(j + 1) * tb]
+                rel[i, j] = blk.max() - blk.min()
+        flat = np.argsort(rel.ravel())[:self.flat_topk]
+        return [(int(idx // nb) * tb + tb // 2, int(idx % nb) * tb + tb // 2) for idx in flat]
 
     def _split(self, band, n):
         edges = np.linspace(band[0], band[1], n + 1).round().astype(int)

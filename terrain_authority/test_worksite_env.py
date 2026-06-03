@@ -63,6 +63,32 @@ def test_greedy_beats_random_under_budget():
     assert g >= 0.8 and g >= r + 0.2, (g, r)         # greedy nearly always solves; random lags clearly
 
 
+def test_haworth_balanced_cut_haul_fill_battery_bound():
+    """Real LOLA Haworth, flat site, mass-balanced cut-haul-fill on a PHYSICS battery budget (not steps):
+    greedy solves it, mass conserved, and the IPEx battery genuinely binds. Skips without the DEM bundle."""
+    import os
+    bundle = "samples/lunar_dem/haworth_10km_5m"
+    if not os.path.isdir(bundle):
+        import pytest
+        pytest.skip("Haworth DEM bundle not present (ships with roversim, not the dustgym package)")
+
+    def mkh(charges):
+        return WorkSiteConstructEnv(bundle_dir=bundle, fine_cell_m=0.1, flat_window=True,
+                                    cut_depth_m=0.05, work_cells=20, n_slices=6,
+                                    charges=charges, max_steps=200)
+    # solvable + mass-conserved on a comfortable (1-charge) budget
+    env = mkh(1); env.reset(seed=0); m0 = env.ws.total_mass(); done = False; info = {}
+    while not done:
+        _, _, te, tr, info = env.step(greedy_worksite(env)); done = te or tr
+    assert info["success"], info
+    assert math.isclose(env.ws.total_mass(), m0, rel_tol=1e-9)
+    # the BATTERY binds: a too-small charge runs the rover out of energy mid-task
+    env = mkh(0.2); env.reset(seed=0); done = False; info = {}
+    while not done:
+        _, _, te, tr, info = env.step(greedy_worksite(env)); done = te or tr
+    assert info["out_of_energy"] and not info["success"], info
+
+
 def test_beam_plan_solves_and_conserves_mass():
     """Model-based beam search finds a valid success on a feasible instance, mass conserved via the ledger."""
     env = mk(); env.reset(seed=0); m0 = env.ws.total_mass()
