@@ -44,8 +44,9 @@ class WorkSiteConstructEnv(_BASE):
     metadata = {"render_modes": []}
 
     def __init__(self, *, n_base=8, base_cell_m=0.5, fine_cell_m=0.1, roughness_m=0.15,
-                 berm_delta_m=0.025, n_slices=6, max_steps=24, tol_frac=0.15,
-                 match_scale=10.0, step_cost=0.05, seed=0):
+                 berm_delta_m=0.025, n_slices=6, max_steps=13, tol_frac=0.15,
+                 match_scale=10.0, step_cost=0.05, seed=0,
+                 bundle_dir=None, charges=None, work_cells=None, window_radius_m=8.0):
         super().__init__()
         self.n_base = int(n_base); self.base_cell_m = float(base_cell_m)
         self.fine_cell_m = float(fine_cell_m); self.roughness_m = float(roughness_m)
@@ -53,6 +54,21 @@ class WorkSiteConstructEnv(_BASE):
         self.max_steps = int(max_steps); self.tol_frac = float(tol_frac)
         self.match_scale = float(match_scale); self.step_cost = float(step_cost)
         self._seed0 = int(seed)
+        # Real-DEM mode + PHYSICS-GROUNDED budget (answers "why N steps?"): when `charges` is given the
+        # episode is bounded by ENERGY from the IPEx battery (ipex_specs), not a step count -- each
+        # flatten/dump spends dig_energy_per_kg * mass_moved + travel, and the rover runs until the
+        # battery (1332 Wh/charge * charges) is exhausted. `bundle_dir` loads the real Haworth DEM;
+        # `work_cells` sets a small centred work area so the task fits a realistic energy budget.
+        self.bundle_dir = bundle_dir
+        self.work_cells = int(work_cells) if work_cells else None
+        self.window_radius_m = float(window_radius_m)
+        from . import ipex_specs as _ix
+        self.dig_J_per_kg = _ix.dig_energy_per_kg()        # grounded: 4151 J/kg
+        self.travel_J_per_m = _ix.drive_energy_per_m()     # grounded: 135 J/m
+        self.charges = charges
+        self.energy_budget_j = (_ix.battery_energy_j() * float(charges)) if charges else float("inf")
+        self._ws_cache = None                              # real-DEM WorkSite (loaded once, reused)
+        self._energy = float("inf"); self._pad_berm_dist_m = 0.0; self._last_region = None
         self.ws = None; self.fine = None
         self.pad_rows = None; self.berm_rows = None; self.pad_target = 0.0
         self.berm_target = None; self._pad_done = None; self._berm_done = None
@@ -90,21 +106,41 @@ class WorkSiteConstructEnv(_BASE):
             super().reset(seed=seed)
         s = self._seed0 if seed is None else int(seed)
         from .worksite import WorkSite
-        base = _bumpy_base(self.n_base, self.base_cell_m, self.roughness_m, seed=s)
-        self.ws = WorkSite(base, world_x0=0.0, world_y0=0.0, fine_cell_m=self.fine_cell_m)
-        self.ws.open_window((self.n_base / 2.0, self.n_base / 2.0), radius_m=self.base_cell_m * self.n_base)
+        if self.bundle_dir:                                # REAL Haworth DEM (loaded once, reused)
+            if self._ws_cache is None:                    # G7 smooth_datum removes 5 m DEM terrace cliffs
+                self._ws_cache = WorkSite.from_haworth_bundle(self.bundle_dir, fine_cell_m=self.fine_cell_m,
+                                                              smooth_datum=True)
+            self.ws = self._ws_cache
+            self.ws.inventory_kg = 0.0                     # episodic reset of the global ledger
+            rng = np.random.default_rng(s)
+            m = 6
+            br = int(rng.integers(m, self.ws.base.height - m)); bc = int(rng.integers(m, self.ws.base.width - m))
+            self.ws.open_window((br, bc), radius_m=self.window_radius_m)
+        else:                                              # synthetic bumpy base (toy)
+            base = _bumpy_base(self.n_base, self.base_cell_m, self.roughness_m, seed=s)
+            self.ws = WorkSite(base, world_x0=0.0, world_y0=0.0, fine_cell_m=self.fine_cell_m)
+            self.ws.open_window((self.n_base / 2.0, self.n_base / 2.0),
+                                radius_m=self.base_cell_m * self.n_base)
         self.fine = self.ws.fine
         H, W = self.fine.height, self.fine.width
-        # central work column; pad = top band, berm = bottom band, each split into n_slices rows
-        self._cwin = (W // 4, 3 * W // 4)
-        pad_band = (H // 8, H // 2); berm_band = (H // 2, 7 * H // 8)
+        if self.work_cells:                                # small centred work area (real DEM): pad above
+            wc = min(self.work_cells, H // 2 - 1, W // 2 - 1)   # centre, berm below
+            self._cwin = (W // 2 - wc // 2, W // 2 + wc // 2)
+            pad_band = (H // 2 - wc, H // 2); berm_band = (H // 2, H // 2 + wc)
+        else:                                              # full-window bands (toy)
+            self._cwin = (W // 4, 3 * W // 4)
+            pad_band = (H // 8, H // 2); berm_band = (H // 2, 7 * H // 8)
+        self._pad_berm_dist_m = abs((pad_band[0] + pad_band[1]) - (berm_band[0] + berm_band[1])) / 2.0 \
+            * self.fine_cell_m                             # pad<->berm haul distance [m]
         self.pad_rows = self._split(pad_band, self.n_slices)
         self.berm_rows = self._split(berm_band, self.n_slices)
         h = self.fine.derive_height()
         pad_h = h[pad_band[0]:pad_band[1], self._cwin[0]:self._cwin[1]]
-        self.pad_target = float(pad_h.min())                       # flatten the pad down to its lowest
+        self.pad_target = float(pad_h.min())                       # flatten the pad to its lowest (max export)
         berm_h = h[berm_band[0]:berm_band[1], self._cwin[0]:self._cwin[1]]
-        self.berm_target = float(berm_h.mean() + self.berm_delta_m)  # raise the berm by delta
+        # toy: raise the berm above its mean. real DEM: raise above the LOCAL MIN by delta -> a modest,
+        # mass-balanced berm (fillable from the pad cut) rather than importing a whole layer.
+        self.berm_target = float((berm_h.min() if self.bundle_dir else berm_h.mean()) + self.berm_delta_m)
         self._pad_done = [False] * self.n_slices
         self._berm_done = [False] * self.n_slices
         self._steps = 0
@@ -112,7 +148,9 @@ class WorkSiteConstructEnv(_BASE):
         self._berm0 = max(1e-9, self._berm_deficit_kg())
         self._prev = self._pad_excess_kg() / self._pad0 + self._berm_deficit_kg() / self._berm0
         self._m0 = self.ws.total_mass()                            # grid + ledger invariant
-        return self._obs(), {"inventory_kg": self.ws.inventory_kg}
+        self._energy = self.energy_budget_j                        # physics budget (J); inf when step-capped
+        self._last_region = None
+        return self._obs(), {"inventory_kg": self.ws.inventory_kg, "energy_j": self._energy}
 
     def _split(self, band, n):
         edges = np.linspace(band[0], band[1], n + 1).round().astype(int)
@@ -128,21 +166,31 @@ class WorkSiteConstructEnv(_BASE):
 
     def step(self, action):
         a = int(action) if np.isscalar(action) else int(np.asarray(action).ravel()[0])
+        mass_moved = 0.0; region = "pad" if a == 0 else "berm"
         if a == 0:                                                 # flatten next undone pad slice
             k = next((i for i, d in enumerate(self._pad_done) if not d), None)
             if k is not None:
-                self.ws.flatten(self._slice_mask(self.pad_rows, k), self.pad_target)
+                mass_moved = self.ws.flatten(self._slice_mask(self.pad_rows, k), self.pad_target)
                 self._pad_done[k] = True
         else:                                                      # dump next undone berm slice
             k = next((i for i, d in enumerate(self._berm_done) if not d), None)
             if k is not None:
                 mask = self._slice_mask(self.berm_rows, k)
-                h = self.fine.derive_height()
-                need_m = np.maximum(self.berm_target - h, 0.0)
-                want_kg = float(need_m[mask].sum()) * K.RHO_SPOIL * self.fine_cell_m ** 2
-                placed = self.ws.dump(mask, kg=min(want_kg, self.ws.inventory_kg))
-                if placed > 0 and self._berm_deficit_slice(k) <= self.tol_frac * self._berm_slice0(k):
+                # FIX-4 per-cell fill_toward (no overshoot) instead of WorkSite.dump's even-spread, which
+                # cannot profile-fill an uneven real-DEM berm to tolerance -> drives the ledger directly.
+                # (This is exactly the drop-in upgrade proposed for WorkSite.dump.)
+                self.fine.drum_inventory = self.ws.inventory_kg            # prime the transient register
+                mass_moved = self.fine.fill_toward(mask, self.berm_target)
+                self.fine.drum_inventory = 0.0
+                self.ws.inventory_kg -= mass_moved                        # ledger loses what landed
+                # a slice is done once it's within tolerance -- including a slice that already had no
+                # deficit (mass_moved==0); the old `mass_moved>0` guard left such slices forever-undone.
+                if self._berm_deficit_slice(k) <= self.tol_frac * self._berm_slice0(k):
                     self._berm_done[k] = True
+        # GROUNDED ENERGY: drum work (dig_J/kg * mass) + a haul leg (travel_J/m) when switching pad<->berm
+        travel_m = self._pad_berm_dist_m if (self._last_region is not None and region != self._last_region) else 0.0
+        self._last_region = region
+        self._energy -= self.dig_J_per_kg * mass_moved + self.travel_J_per_m * travel_m
         self._steps += 1
         cur = self._pad_excess_kg() / self._pad0 + self._berm_deficit_kg() / self._berm0
         reward = (self._prev - cur) * self.match_scale - self.step_cost
@@ -152,8 +200,10 @@ class WorkSiteConstructEnv(_BASE):
         if success:
             reward += 5.0
         terminated = bool(success)
-        truncated = self._steps >= self.max_steps
+        out_of_energy = self._energy <= 0.0                        # battery exhausted (grounded budget)
+        truncated = (self._steps >= self.max_steps) or out_of_energy
         info = {"success": success, "inventory_kg": self.ws.inventory_kg, "steps": self._steps,
+                "energy_j": self._energy, "out_of_energy": out_of_energy,
                 "pad_excess": self._pad_excess_kg(), "berm_deficit": self._berm_deficit_kg()}
         return self._obs(), float(reward), terminated, truncated, info
 
@@ -169,11 +219,10 @@ def beam_worksite_plan(env: WorkSiteConstructEnv, width: int = 12):
     """Model-based planner over the WorkSite seam: beam-search the flatten/dump schedule from env's
     CURRENT state for the fewest-step success within the budget. Returns the action list to replay.
 
-    The conserved WorkSite engine is exact + cheap (deepcopy ~0.2 ms), so search runs at inference. On
-    held-out instances beam reaches ~75% within the 24-step budget vs greedy 60% / PPO 63% / search-
-    distilled-MLP 63%: the 63%->75% gap is a LOOKAHEAD advantage (planning the whole schedule against the
-    tight budget), which a reactive policy structurally cannot capture or distill -- so the search itself
-    is the best policy here (cf. the Dust/Scheduler finding that model-based search >= model-free). Pure
+    The conserved WorkSite engine is exact + cheap (deepcopy ~0.2 ms), so search runs at inference. With
+    the corrected mechanics + the tight default budget, beam and the greedy heuristic both solve ~100% on
+    held-out instances while random ~53% and model-free PPO ~0% (no slack under the tight budget): the
+    heuristic/search dominate (cf. the Dust/Scheduler finding that model-based search >= model-free). Pure
     numpy; eval/planning only (deep-copies env states)."""
     import copy
     beam = [(copy.deepcopy(env), False, False, [])]    # (env, done, success, path)

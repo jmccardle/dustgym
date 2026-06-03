@@ -7,13 +7,18 @@ policy. WorkSiteConstructEnv is that controller: Discrete(2) actions ARE WorkSit
 slice -> ledger, dump a berm slice <- ledger), so PPO learns the cut-haul-fill batching (WHEN to switch
 cut->dump under the ledger) on the real conserved engine.
 
-Observed (held-out randomized instances, 120k steps):
-    greedy heuristic   success=60%  avg_steps=22
-    random             success=23%
-    PPO (learned)      success=63%  avg_steps=21   (matches/edges greedy, generalizes, ~3x random)
+Observed (held-out randomized instances, max_steps=13 binding budget, 120k steps):
+    greedy heuristic        success=100%  avg_steps=11
+    beam search (ceiling)   success=100%  (model-based)
+    random                  success=53%
+    PPO (model-free)        success~=0%   (no slack under the tight budget)
 
-The ~60% ceiling is feasibility variation across random bumps (not all instances are solvable within the
-budget); PPO learns the threshold and is slightly more step-efficient than greedy on John's seam.
+Honest finding: with the corrected mechanics (per-cell fill_toward, no-overshoot slice completion) the
+batching heuristic is near-optimal and a model-based beam plan is exact, both solving 100% on John's seam;
+random 53% shows the cut/dump ordering still matters. Model-free PPO does NOT add value here -- under the
+tight budget it has no room for suboptimality, so the heuristic/search dominate (same conclusion as the
+Dust/Scheduler study: model-based search >= model-free). The controller integration is the point: actions
+ARE WorkSite verbs, mass is conserved through the drum ledger.
 
 Run with the runtime venv (gymnasium + torch + SB3):
     PYTHONPATH=<repo> /mnt/projects/07_runtime_system/venv/bin/python scripts/demo/train_worksite.py
@@ -72,13 +77,12 @@ def main():
                 ent_coef=0.01, learning_rate=3e-4, verbose=0, seed=0, device="cpu")
     model.learn(total_timesteps=args.timesteps)
     ps, pl = evaluate(lambda e, o: int(model.predict(o, deterministic=True)[0]), args.eval_episodes)
-    print(f"PPO (learned)           success={ps:.0%}  avg_steps={pl:.1f}  ({args.timesteps} steps)")
-    print(f"\nA learned policy drives John's WorkSite seam (flatten/dump + drum ledger): PPO {ps:.0%} "
-          f"(>= greedy {gs:.0%}), beating random by {(ps - rs) * 100:.0f} points -- the controller "
-          f"WorkSite stubbed, learned on the real conserved engine.")
-    print(f"Honest ceiling: beam search reaches {bs:.0%}; the {bs - ps:+.0%} gap over reactive policies is a "
-          f"LOOKAHEAD advantage (planning the schedule against the tight budget) that greedy/PPO/search-"
-          f"distilled-MLP all plateau below (~63%). On this exact, cheap sim the search IS the best policy.")
+    print(f"PPO (model-free)        success={ps:.0%}  avg_steps={pl:.1f}  ({args.timesteps} steps)")
+    print(f"\nThe controller drives John's WorkSite seam (Discrete actions ARE flatten/dump, mass conserved "
+          f"through the drum ledger). greedy {gs:.0%} and beam {bs:.0%} solve it; random {rs:.0%} shows the "
+          f"cut/dump ORDERING matters.")
+    print(f"Model-free PPO {ps:.0%}: under the tight budget there is no slack for its suboptimality, so the "
+          f"heuristic/search dominate (model-based search >= model-free, as on Dust/Scheduler).")
 
 
 def _beam_rate(n=30, seed0=9000):

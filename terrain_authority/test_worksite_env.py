@@ -60,7 +60,7 @@ def test_greedy_beats_random_under_budget():
     rng = np.random.default_rng(1)
     g = rate(lambda e: greedy_worksite(e))
     r = rate(lambda e: rng.integers(2))
-    assert g >= 0.6 and g >= r + 0.3, (g, r)         # greedy solves; random lags by a wide margin
+    assert g >= 0.8 and g >= r + 0.2, (g, r)         # greedy nearly always solves; random lags clearly
 
 
 def test_beam_plan_solves_and_conserves_mass():
