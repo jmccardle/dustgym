@@ -271,6 +271,40 @@ dims/dtype/row-major).
 
 ---
 
+## 3b. RL — the `Lunar/` Gymnasium suite
+
+The physics authority doubles as a set of **Gymnasium environments** for lunar surface vehicles and
+autonomous construction. Because the authority is exact, deterministic, mass-conserving, and sub-ms, it is
+both the simulator *and* the reward source — learned/searched policies only **command**, the authority
+**mutates** terrain, so rewards are unhackable by construction.
+
+```bash
+pip install -e .            # installs `lunar-sim-gym` (deps: numpy, scipy, gymnasium; extras: [rl] = torch+SB3)
+```
+
+```python
+import lunar_sim_gym        # registers the Lunar/* envs on import (or: gymnasium.register_envs(lunar_sim_gym))
+import gymnasium as gym
+
+env = gym.make("Lunar/Scheduler-v0")      # any constructor arg overridable: gym.make(id, max_legs=25, ...)
+obs, info = env.reset(seed=0)
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+```
+
+| ID | task | action | obs |
+|----|------|--------|-----|
+| `Lunar/RoverDrive-v0` | closed-loop unicycle drive over terramechanics (slip, sinkage) | `Box(2)` twist | `Box(32)` |
+| `Lunar/Construct-v0` | cut/fill to a target heightmap (terrain-matching reward) | `Box(3)` drive+drum | `Box(104)` |
+| `Lunar/SkillMacro-v0` | skill-macro construction: pick a cell + cut/dump toward target | `Discrete(128)` | `Box(68)` |
+| `Lunar/Scheduler-v0` | multi-objective scheduling: borrow pits → build sites, one rover/drum | `Discrete(5)` | `Box(12)` |
+
+All four pass `gymnasium.utils.env_checker`. Baselines / training demos in `scripts/demo/`
+(`train_ppo.py`, `train_scheduler.py`, `distill_scheduler.py`); `terrain_authority.scheduler_env` also ships
+a greedy planner and a model-based `beam_search_plan`. Finding: on these dig-dominated tasks model-based
+search + distillation reaches the optimum where model-free PPO does not (see `distill_scheduler.py`).
+
+---
+
 ## 4. What's papered over (and the citations)
 
 Honest accounting. Every shortcut is deliberate, scoped to Tier 2, and cited to a spec section and the
