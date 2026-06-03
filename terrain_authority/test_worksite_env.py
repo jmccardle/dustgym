@@ -10,7 +10,8 @@ import math
 
 import numpy as np
 
-from terrain_authority.worksite_env import WorkSiteConstructEnv, greedy_worksite
+from terrain_authority.worksite_env import (WorkSiteConstructEnv, beam_worksite_plan,
+                                            greedy_worksite)
 
 
 def mk(**kw):
@@ -60,3 +61,17 @@ def test_greedy_beats_random_under_budget():
     g = rate(lambda e: greedy_worksite(e))
     r = rate(lambda e: rng.integers(2))
     assert g >= 0.6 and g >= r + 0.3, (g, r)         # greedy solves; random lags by a wide margin
+
+
+def test_beam_plan_solves_and_conserves_mass():
+    """Model-based beam search finds a valid success on a feasible instance, mass conserved via the ledger."""
+    env = mk(); env.reset(seed=0); m0 = env.ws.total_mass()
+    plan = beam_worksite_plan(env, width=12)
+    assert plan, "beam found no success within budget on seed 0"
+    env2 = mk(); env2.reset(seed=0); info = {}
+    for a in plan:
+        _, _, te, tr, info = env2.step(a)
+        if te or tr:
+            break
+    assert info["success"]
+    assert math.isclose(env2.ws.total_mass(), m0, rel_tol=1e-9)
