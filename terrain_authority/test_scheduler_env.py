@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-from terrain_authority.scheduler_env import SchedulerEnv, greedy_nearest_schedule
+from terrain_authority.scheduler_env import SchedulerEnv, beam_search_plan, greedy_nearest_schedule
 
 CFG = dict(grid=64, cell_m=0.5,
            borrows=[(4, 4, 12, 12), (52, 52, 60, 60)],
@@ -61,15 +61,26 @@ def test_planner_beats_random_under_budget():
     assert sum(r) <= 1                # random almost never finishes in time
 
 
-def test_planner_is_near_optimal():
-    """The greedy planner reaches ~the analytic leg lower bound -> near-optimal (so 'a learned policy
-    matches greedy' means it is near-optimal, the right bar given routing headroom is physics-limited)."""
+def test_model_based_search_beats_greedy():
+    """Headroom check: greedy is NOT optimal. Beam search in the exact (deterministic, cheap) authority
+    finds a strictly shorter valid schedule -> there is real headroom, and model-based planning captures
+    it (the best learned policy distills this search; see scripts/demo/distill_scheduler.py)."""
     env = mk(); env.reset(seed=0); done = False; info = {}
     while not done:
         _, _, te, tr, info = env.step(greedy_nearest_schedule(env)); done = te or tr
-    lb = env.min_legs_lower_bound()
-    assert info["success"]
-    assert info["legs"] <= lb + 3, (info["legs"], lb)      # within a few legs of optimal
+    greedy_legs = info["legs"]
+    # plan + replay the beam schedule on a fresh copy of the same instance
+    env2 = mk(); env2.reset(seed=0)
+    plan = beam_search_plan(env2, width=20)
+    env3 = mk(); env3.reset(seed=0); info3 = {}
+    for a in plan:
+        _, _, te, tr, info3 = env3.step(a)
+        if te or tr:
+            break
+    assert info3["success"]
+    assert info3["legs"] < greedy_legs, (info3["legs"], greedy_legs)   # search strictly beats greedy
+    for a0, b0, c0, d0 in env3.builds:                                  # and the solution is valid
+        assert (env3.cs.derive_height()[a0:c0, b0:d0] - env3.target[a0:c0, b0:d0]).max() <= 1e-9
 
 
 def test_no_overshoot_after_solve():
