@@ -30,7 +30,7 @@ ROVER_BODIES = ["moon", "mars", "ceres", "earth"]
 ENV_IDS = (
     ["Dust/RoverDrive-v0"]
     + [f"Dust/RoverDrive-{b.capitalize()}-v0" for b in ROVER_BODIES]
-    + ["Dust/Construct-v0", "Dust/SkillMacro-v0", "Dust/Scheduler-v0"]
+    + ["Dust/Construct-v0", "Dust/SkillMacro-v0", "Dust/Scheduler-v0", "Dust/WorkSite-v0"]
 )
 
 _REGISTERED = False
@@ -85,6 +85,8 @@ def register_envs():
          {"challenge": dc, "discrete_cells": 8}, None),
         ("Dust/Scheduler-v0", "terrain_authority.scheduler_env:SchedulerEnv",
          _scheduler_kwargs(), None),
+        # RL controller over John's WorkSite execution seam (flatten/dump + drum ledger)
+        ("Dust/WorkSite-v0", "terrain_authority.worksite_env:WorkSiteConstructEnv", {}, None),
     ]
     for env_id, entry_point, kwargs, max_steps in specs:
         if env_id in registry:
