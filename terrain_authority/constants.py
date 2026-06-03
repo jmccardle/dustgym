@@ -214,7 +214,19 @@ STATE_TREAD = 1
 STATE_EXCAVATED = 2
 STATE_SPOIL = 3
 STATE_COMPACTED_BERM = 4
-STATE_NAMES = ["VIRGIN", "TREAD", "EXCAVATED", "SPOIL", "COMPACTED_BERM"]
+STATE_SINTERED = 5                 # solar/microwave-fused hard surface (pads/roads/walls)
+STATE_NAMES = ["VIRGIN", "TREAD", "EXCAVATED", "SPOIL", "COMPACTED_BERM", "SINTERED"]
+
+# ---------------------------------------------------------------------------
+# Sintering (the lunar concrete/asphalt analog): fuse loose regolith into a hard solid surface
+# with solar/microwave/laser. Mass-conserving densification (porosity collapses -> denser, thinner).
+# ---------------------------------------------------------------------------
+#: Sintered/fused regolith bulk density [kg/m^3]. [CALIB] sintered-regolith samples ~1.8-2.8 g/cm^3
+#: (between RHO_DEEP 1920 and grain 3100); 2300 is a mid estimate (microwave-sinter literature).
+RHO_SINTERED = 2300.0
+#: Energy to sinter regolith [J/kg]. [CALIB] ~= c_p * dT to fusion (~840 J/kg/K * ~1100 K ~= 0.92 MJ/kg);
+#: microwave/solar sintering, no precise IPEx-class figure. ~220x the 4151 J/kg excavation cost.
+SINTER_ENERGY_J_PER_KG = 920_000.0
 
 # ===========================================================================
 # DEM-TERRAIN THRUST — sourced procgen parameters (Lane B, ADDITIVE block).

@@ -120,6 +120,19 @@ def test_haul_fill_converges_to_raised_target():
     assert math.isclose(cs.total_mass(), m0, rel_tol=1e-12)                  # mass conserved
 
 
+def test_sinter_conserves_mass_and_densifies():
+    """Sinter fuses cells: mass conserved, density -> sintered, height drops, state -> SINTERED."""
+    cs = _cs(); m0 = cs.total_mass()
+    mask = np.zeros((cs.height, cs.width), bool); mask[5:10, 5:10] = True
+    h0 = cs.derive_height()[mask].copy()
+    kg = cs.sinter(mask)
+    assert math.isclose(cs.total_mass(), m0, rel_tol=1e-12)                # mass conserved
+    assert (cs.density[mask] == K.RHO_SINTERED).all()                      # densified to sintered
+    assert (cs.derive_height()[mask] <= h0 + 1e-12).all()                 # denser -> thinner -> lower
+    assert (cs.state_label[mask] == StateLabel.SINTERED).all()
+    assert kg > 0
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
