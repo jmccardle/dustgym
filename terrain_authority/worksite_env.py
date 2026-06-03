@@ -47,7 +47,7 @@ class WorkSiteConstructEnv(_BASE):
                  berm_delta_m=0.025, n_slices=6, max_steps=13, tol_frac=0.15,
                  match_scale=10.0, step_cost=0.05, seed=0,
                  bundle_dir=None, charges=None, work_cells=None, window_radius_m=8.0,
-                 flat_window=False, flat_topk=24, cut_depth_m=None):
+                 flat_window=False, flat_topk=24, cut_depth_m=None, drum_sensor=None):
         super().__init__()
         self.n_base = int(n_base); self.base_cell_m = float(base_cell_m)
         self.fine_cell_m = float(fine_cell_m); self.roughness_m = float(roughness_m)
@@ -71,6 +71,10 @@ class WorkSiteConstructEnv(_BASE):
         self._ws_cache = None                              # real-DEM WorkSite (loaded once, reused)
         self.flat_window = bool(flat_window); self.flat_topk = int(flat_topk)
         self.cut_depth_m = float(cut_depth_m) if cut_depth_m else None   # balanced cut-haul-fill depth
+        # Optional drum-fill SENSING (rassor_mass_model.DrumSensor): when set, the drum-fill observation is
+        # the motor-current INFERRED mass (optionally noisy) instead of the true ledger -> the policy plans
+        # under realistic imperfect drum knowledge. None (default) = perfect knowledge (non-breaking).
+        self.drum_sensor = drum_sensor
         self._flat_rc = None                               # cached flattest base-tile centres
         self._energy = float("inf"); self._pad_berm_dist_m = 0.0; self._last_region = None
         self.ws = None; self.fine = None
@@ -188,8 +192,9 @@ class WorkSiteConstructEnv(_BASE):
     def _obs(self):
         pad_left = self._pad_excess_kg() / self._pad0
         berm_left = self._berm_deficit_kg() / self._berm0
-        cap = max(1e-9, self._berm0 * K.RHO_SPOIL * self.fine_cell_m ** 2 / max(1, self.n_slices))
-        inv = self.ws.inventory_kg / max(1.0, self._m0)
+        inv_kg = (self.ws.inventory_kg if self.drum_sensor is None
+                  else self.drum_sensor.observe(self.ws.inventory_kg))   # sensed drum fill (optional)
+        inv = inv_kg / max(1.0, self._m0)
         return np.array([pad_left, berm_left, float(inv), 1.0 - self._steps / self.max_steps],
                         dtype=np.float32)
 

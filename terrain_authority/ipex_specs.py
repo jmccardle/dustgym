@@ -92,6 +92,14 @@ def dig_energy_per_kg() -> float:
     return dig_power_w() / rate_kg_s
 
 
+# ---- Planner operational parameters (mission_planner build-sequencer) ----------------------
+# NOT in [SCHULER24]: planner-level assumptions for the energy/battery build sequencer. The single
+# source of truth for these knobs (mission_planner imports them; nothing is duplicated downstream).
+SINTER_HEAD_POWER_W = 1000.0      # [CALIB] microwave/solar sinter-head power (IPEx has no sinter tool)
+RECHARGE_POWER_W = 700.0          # [CALIB] surface recharge power (no IPEx solar/charge spec)
+BATTERY_RESERVE_FRAC = 0.10       # operational: hold >=10% pack reserve before forcing a recharge
+
+
 def energy_model(cell_m: float, *, allowance_j: float | None = None,
                  allowance_factor: float | None = None,
                  planner_cost_j: float | None = None) -> dict:
@@ -145,6 +153,11 @@ def spec_record() -> dict:
             "drive_energy_per_m_j": round(drive_energy_per_m(), 2),
             "dig_power_w": round(dig_power_w(), 2),
             "dig_energy_per_kg_j": round(dig_energy_per_kg(), 1),
+        },
+        "planner": {                                  # [CALIB]/operational, not [SCHULER24]
+            "sinter_head_power_w": SINTER_HEAD_POWER_W,
+            "recharge_power_w": RECHARGE_POWER_W,
+            "battery_reserve_frac": BATTERY_RESERVE_FRAC,
         },
     }
 

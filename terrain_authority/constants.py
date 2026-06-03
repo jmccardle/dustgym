@@ -105,12 +105,13 @@ K_C = 1400.0
 K_PHI = 820_000.0
 
 #: Shear deformation modulus K [m]. [CALIB] spec §5.2 (1.0-1.8 cm, ~1.8 -> 0.018 m).
-#: Janosi-Hanamoto shear; unused by the geometry-only rover pass but kept for fidelity.
+#: Janosi-Hanamoto shear; READ by slip.developed_thrust (the load-bearing slip ladder, Phases 2-3).
 K_SHEAR = 0.018  # 1.8 cm
 
 #: Slip-sinkage coefficients (theta_m = (c1 + c2*s)*theta_f). [UNKNOWN] spec §5.2
 #: (c1~0.4, c2~0.3, "genuine unknowns"). Drives the runaway-entrapment failure mode
-#: (spec §6 "Spirit-rover failure"); not exercised by the single-pass geometry rover.
+#: (spec §6 "Spirit-rover failure"); EXERCISED via slip_sinkage_multiplier on the physical=True
+#: drive path (four_wheel_pass <- drive.closed_loop_drive / worksite.compact_over). Magnitudes [UNKNOWN].
 SLIP_C1 = 0.4
 SLIP_C2 = 0.3
 
@@ -227,6 +228,12 @@ RHO_SINTERED = 2300.0
 #: Energy to sinter regolith [J/kg]. [CALIB] ~= c_p * dT to fusion (~840 J/kg/K * ~1100 K ~= 0.92 MJ/kg);
 #: microwave/solar sintering, no precise IPEx-class figure. ~220x the 4151 J/kg excavation cost.
 SINTER_ENERGY_J_PER_KG = 920_000.0
+#: Sinter feasibility gate (the SINGLE source of truth, read by WorkSite.sinter and mission_planner).
+#: Sinter is a real, conserved, tested authority primitive (column_state.sinter), but RHO_SINTERED and
+#: SINTER_ENERGY_J_PER_KG above are [CALIB], not IPEx-grounded (IPEx is a drum excavator with no sinter
+#: tool). GATED OFF until grounded: the controller action and the planner both refuse while this is
+#: False. Flip this one line to True once those numbers are sourced against a real reference.
+SINTER_ENABLED = False
 
 # ===========================================================================
 # DEM-TERRAIN THRUST — sourced procgen parameters (Lane B, ADDITIVE block).

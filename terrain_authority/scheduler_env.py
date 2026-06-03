@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import constants as K
-
 try:
     import gymnasium as _gym
     from gymnasium import spaces as _spaces
@@ -45,7 +43,7 @@ class SchedulerEnv(_BASE):
                  mound_height_m=0.30, tol_m=0.01, drum_capacity_kg=120.0, max_legs=40,
                  travel_cost_per_cell=1.0, dig_cost_per_kg=0.0, energy_budget=float("inf"),
                  match_scale=20.0, leg_cost=0.05, randomize=False,
-                 borrow_size=8, build_size=4):
+                 borrow_size=8, build_size=4, drum_sensor=None):
         super().__init__()
         self.grid = int(grid); self.cell_m = float(cell_m)
         self.borrows = [tuple(b) for b in borrows]
@@ -61,6 +59,7 @@ class SchedulerEnv(_BASE):
         self.dig_cost_per_kg = float(dig_cost_per_kg)
         self.energy_budget = float(energy_budget)
         self.match_scale = float(match_scale); self.leg_cost = float(leg_cost)
+        self.drum_sensor = drum_sensor                     # optional DrumSensor: sensed (vs true) drum fill in obs
         self.cell_area = self.cell_m * self.cell_m
         self.obs_dim = 2 * self.n_region + 2
 
@@ -152,7 +151,9 @@ class SchedulerEnv(_BASE):
                 work = self._build_deficit(rect) / max(1e-9, self._deficit0)
             dist = np.hypot(*(np.subtract(self._centroid(rect), self.rc))) / self.grid
             feats += [float(np.clip(work, 0, 1)), float(dist)]
-        drum = self.cs.drum_inventory / self.drum_capacity_kg if np.isfinite(self.drum_capacity_kg) else 0.0
+        inv_kg = (self.cs.drum_inventory if self.drum_sensor is None
+                  else self.drum_sensor.observe(self.cs.drum_inventory))   # sensed drum fill (optional)
+        drum = inv_kg / self.drum_capacity_kg if np.isfinite(self.drum_capacity_kg) else 0.0
         legs_left = 1.0 - self._legs / self.max_legs
         return np.array(feats + [float(drum), float(legs_left)], dtype=np.float32)
 

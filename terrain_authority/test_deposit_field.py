@@ -133,6 +133,22 @@ def test_sinter_conserves_mass_and_densifies():
     assert kg > 0
 
 
+def test_worksite_sinter_seam_is_gated_off():
+    """The WorkSite controller exposes .sinter() as a first-class action, but it is GATED OFF by
+    default (energy/density are [CALIB], not IPEx-grounded -> IPEx has no sinter tool), so calling
+    it raises until SINTER_ENABLED is flipped. The real primitive (column_state.sinter, above) is
+    wired underneath -> this is a feasibility gate, not a stub."""
+    from terrain_authority import worksite as WS
+    assert K.SINTER_ENABLED is False                        # single gate, in constants -> default off
+    mask = np.zeros((4, 4), bool); mask[1, 1] = True
+    try:
+        WS.WorkSite.sinter(object(), mask)                  # gate fires before touching self
+    except RuntimeError as e:
+        assert "GATED OFF" in str(e)
+    else:
+        raise AssertionError("WorkSite.sinter must raise while SINTER_ENABLED is False")
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
